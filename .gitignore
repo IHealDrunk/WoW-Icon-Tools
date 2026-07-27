@@ -1,0 +1,21 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# GIMP files
+*.xcf
+
+# Generated icon files
+ICONS/
+04_ICON_128x128/
+
+# Logs
+Logs/
+
+# Temporary files
+*.tmp
+*.bak
+
+# Windows files
+Thumbs.db
+desktop.ini
