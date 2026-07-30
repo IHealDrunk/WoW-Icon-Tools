@@ -1,0 +1,13 @@
+{
+    "name": "Eclipse",
+    "description": "Clean glossy ElvUI-style icons with dark edges, subtle glow, and reflective glare.",
+    "author": "IHealDrunk",
+    "version": "1.0.0",
+
+    "template_file": "Master GIMP Template.xcf",
+    "preview": "preview.png",
+
+    "replace_layer": "ICON",
+    "icon_size": 128,
+    "export_format": ".tga"
+}

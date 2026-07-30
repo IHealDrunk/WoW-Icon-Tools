@@ -1,21 +1,30 @@
-# Python cache
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
 
-# GIMP files
-*.xcf
+# Virtual environments
+.venv/
+venv/
+env/
 
-# Generated icon files
+# VS Code
+.vscode/
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Build output
+BLP/
+PNG/
+PNG_128x128_Resized/
 ICONS/
-04_ICON_128x128/
-
-# Logs
-Logs/
+Archive/
 
 # Temporary files
+*.log
 *.tmp
-*.bak
 
-# Windows files
-Thumbs.db
-desktop.ini
+# Python cache
+.pytest_cache/

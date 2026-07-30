@@ -1,43 +1,80 @@
-from pathlib import Path
 from PIL import Image
-import blp
 
-# Folders
-input_folder = Path(r"C:\Users\jstme\OneDrive\Documents\WoW Icon Project\02_BLP")
-output_folder = Path(r"C:\Users\jstme\OneDrive\Documents\WoW Icon Project\03_Converted PNG")
+from utils import BLP_FOLDER, PNG_FOLDER
 
-output_folder.mkdir(exist_ok=True)
 
-converted = 0
-failed = 0
+def convert_blp_to_png():
 
-print("Starting conversion...\n")
+    converted = 0
+    skipped = 0
+    failed = 0
 
-for blp_file in input_folder.rglob("*.blp"):
+    print("Starting BLP conversion...")
+    print()
 
-    try:
-        # Keep the same folder structure
-        relative_path = blp_file.relative_to(input_folder)
+    for blp_file in BLP_FOLDER.rglob("*.blp"):
 
-        output_file = output_folder / relative_path.with_suffix(".png")
+        try:
 
-        output_file.parent.mkdir(parents=True, exist_ok=True)
+            # Keep folder structure
+            relative_path = blp_file.relative_to(
+                BLP_FOLDER
+            )
 
-        # Convert
-        img = Image.open(blp_file)
-        img.save(output_file)
+            output_file = (
+                PNG_FOLDER /
+                relative_path.with_suffix(".png")
+            )
 
-        converted += 1
+            output_file.parent.mkdir(
+                parents=True,
+                exist_ok=True
+            )
 
-        print(f"[OK] {converted}: {blp_file.name}")
+            # Skip files already converted
+            if output_file.exists():
 
-    except Exception as e:
-        failed += 1
-        print(f"[FAILED] {blp_file.name}")
-        print(e)
+                skipped += 1
 
-print("\n==========================")
-print("Conversion Complete")
-print(f"Converted: {converted}")
-print(f"Failed: {failed}")
-print("==========================")
+                print(
+                    f"[SKIPPED] {blp_file.name}"
+                )
+
+                continue
+
+            # Convert BLP to PNG
+            with Image.open(blp_file) as img:
+
+                img.convert("RGBA").save(
+                    output_file,
+                    "PNG"
+                )
+
+            converted += 1
+
+            print(
+                f"[OK] {converted}: {blp_file.name}"
+            )
+
+        except Exception as e:
+
+            failed += 1
+
+            print(
+                f"[FAILED] {blp_file.name}"
+            )
+
+            print(e)
+
+    print()
+    print("==========================")
+    print("Conversion Complete")
+    print("==========================")
+    print(f"Converted: {converted}")
+    print(f"Skipped:   {skipped}")
+    print(f"Failed:    {failed}")
+    print("==========================")
+
+
+if __name__ == "__main__":
+    convert_blp_to_png()
