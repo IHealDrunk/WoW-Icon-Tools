@@ -4,10 +4,10 @@
     "author": "IHealDrunk",
     "version": "1.0.0",
 
-    "template_file": "Master GIMP Template.xcf",
+    "template_file": "Eclipse.xcf",
     "preview": "preview.png",
 
     "replace_layer": "ICON",
     "icon_size": 128,
-    "export_format": ".tga"
+    "export_format": "tga"
 }

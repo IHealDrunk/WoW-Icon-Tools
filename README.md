@@ -195,16 +195,20 @@ Existing icons are automatically skipped.
 
 # 📁 Project Structure
 
-```
+```text
 WoW Icon Tools
 
 ├── BLP/
 ├── PNG/
 ├── PNG_128x128_Resized/
 ├── ICONS/
+├── Logs/
 
 ├── Templates/
 │   └── Eclipse/
+│       ├── Eclipse.xcf
+│       ├── preview.png
+│       └── template.json
 
 ├── Scripts/
 
@@ -215,54 +219,126 @@ WoW Icon Tools
 
 ---
 
-# 🎨 Creating Your Own Templates
+## 🎨 Creating Your Own Templates
 
-Templates are completely modular.
+Templates are completely modular. Each template is stored in its own folder inside the `Templates` directory.
 
-Simply create a new folder inside the **Templates** directory.
+To add a custom template, create a new folder and give it a descriptive name.
 
 Example:
 
-```
+```text
 Templates/
-
-    Eclipse/
-        Master GIMP Template.xcf
-        template.json
-        preview.png
+├── Eclipse/
+│   ├── Eclipse.xcf
+│   ├── preview.png
+│   └── template.json
+│
+└── Obsidian/
+    ├── Obsidian.xcf
+    ├── preview.png
+    └── template.json
 ```
 
-Each template defines:
+WoW Icon Tools automatically scans the `Templates` folder at startup and lists every valid template it finds.
 
-- Name
+No Python code changes are required when adding another template.
+
+## Template Requirements
+
+Each template folder must contain:
+
+- A GIMP `.xcf` template file
+- A file named exactly `template.json`
+- An optional `preview.png` image
+
+> **Important:** The `template.json` filename is required and must not be renamed.
+
+The XCF file may use any filename, provided the same filename is entered in `template.json`.
+
+For example:
+
+```json
+{
+    "name": "Eclipse",
+    "description": "Clean glossy ElvUI-style icons with dark edges, subtle glow, and reflective glare.",
+    "author": "IHealDrunk",
+    "version": "1.0.0",
+
+    "template_file": "Eclipse.xcf",
+    "preview": "preview.png",
+
+    "replace_layer": "ICON",
+    "icon_size": 128,
+    "export_format": ".tga"
+}
+```
+
+The `template.json` file defines:
+
+- Template name
 - Description
 - Author
 - Version
+- GIMP template filename
+- Preview image filename
 - Replacement layer
-- Export format
 - Icon size
+- Export format
 
-WoW Icon Tools automatically discovers new templates at startup.
+The XCF template must contain a layer matching the name entered under `replace_layer`.
 
-No code changes are required.
+For the example above, the XCF must contain a layer named:
+
+```text
+ICON
+```
+
+During rendering, WoW Icon Tools replaces that layer with each resized icon while preserving the remaining GIMP layers, blend modes, opacity settings, and layer order.
+
+The optional `preview.png` should show what the finished template looks like.
+
+## ⚠️ Before Changing Templates
+
+WoW Icon Tools uses Resume Mode and skips icons that already exist in the `ICONS` folder.
+
+When switching to a different template—for example, from **Eclipse** to **Obsidian**—clear the contents of the `ICONS` folder before starting the new build.
+
+Otherwise, existing icons will be skipped and the folder may contain icons created with different templates.
+
+
+### Recommended Steps
+
+1. Open the `ICONS` folder.
+2. Delete all previously generated icons.
+3. Run `build_icon.py`.
+
+This ensures every icon is rendered using the newly selected template.
 
 ---
 
 # 🛣 Roadmap
 
-## Version 1.0
+## Version 1.0 — Released
 
 - ✅ Complete batch processing pipeline
-- ✅ Resume mode
+- ✅ BLP-to-PNG conversion
+- ✅ Automatic 128×128 icon resizing
+- ✅ GIMP-based rendering
+- ✅ TGA export
+- ✅ Resume Mode
 - ✅ Modular template system
 - ✅ Automatic template discovery
+- ✅ Custom XCF filenames
+- ✅ Template metadata
 - ✅ Template validation
 - ✅ Automatic GIMP detection
 - ✅ Professional console interface
 
-## Planned for Version 1.1
+## Future Improvements
 
-- 🖼 Template preview images
+- 🖼 Display template preview images
+- 🧹 Optional warning when the `ICONS` folder already contains files
 - ⚙ Configuration file
 - 📊 Progress bar
 - 🔍 Verbose mode
