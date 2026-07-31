@@ -341,7 +341,6 @@ This ensures every icon is rendered using the newly selected template.
 - 🧹 Optional warning when the `ICONS` folder already contains files
 - ⚙ Configuration file
 - 📊 Progress bar
-- 🔍 Verbose mode
 - 📦 Additional export formats
 
 ---
