@@ -16,29 +16,19 @@ def read_template_json(template_folder):
         return None
 
     try:
-        with open(
-            template_file,
-            "r",
-            encoding="utf-8"
-        ) as file:
+        with open(template_file, "r", encoding="utf-8") as file:
             return json.load(file)
 
     except json.JSONDecodeError as error:
-        print()
-        print("ERROR: Invalid JSON found in:")
+        print("\nERROR: Invalid JSON found in:")
         print(template_file)
         print(error)
-        print()
-
         return None
 
     except OSError as error:
-        print()
-        print("ERROR: Could not read:")
+        print("\nERROR: Could not read:")
         print(template_file)
         print(error)
-        print()
-
         return None
 
 
@@ -61,7 +51,7 @@ def discover_templates():
 
     for template_folder in sorted(
         TEMPLATES_FOLDER.iterdir(),
-        key=lambda folder: folder.name.lower()
+        key=lambda folder: folder.name.lower(),
     ):
         if not template_folder.is_dir():
             continue
@@ -93,80 +83,51 @@ def select_template():
     templates = discover_templates()
 
     if not templates:
-        print()
-        print("ERROR: No valid templates were found.")
-        print("Template folders must contain a valid template.json file.")
-        print()
+        print("\nERROR: No valid templates were found.")
+        print("Template folders must contain a valid template.json file.\n")
         print("Templates folder:")
         print(TEMPLATES_FOLDER)
-
         return None
 
     print("===================================")
     print("Available Templates")
     print("===================================")
 
-    for number, template_data in enumerate(
-        templates,
-        start=1
-    ):
+    for number, template_data in enumerate(templates, start=1):
         info = template_data["info"]
-        folder_name = template_data["folder_name"]
 
         template_name = info.get(
             "name",
-            folder_name
-        )
-
-        description = info.get(
-            "description"
-        )
-
-        author = info.get(
-            "author"
-        )
-
-        version = info.get(
-            "version"
+            template_data["folder_name"],
         )
 
         print(f"{number}. {template_name}")
 
-        if description:
+        if description := info.get("description"):
             print(f"   {description}")
 
-        if author:
+        if author := info.get("author"):
             print(f"   Author: {author}")
 
-        if version:
+        if version := info.get("version"):
             print(f"   Version: {version}")
 
         print()
 
     while True:
-        selection = input(
-            "Select a template number: "
-        ).strip()
+        selection = input("Select a template number: ").strip()
 
         try:
             selection_number = int(selection)
 
         except ValueError:
-            print(
-                f"Please enter a number from 1 to {len(templates)}."
-            )
+            print(f"Please enter a number from 1 to {len(templates)}.")
             continue
 
         if 1 <= selection_number <= len(templates):
-            selected_template = templates[
-                selection_number - 1
-            ]
+            return templates[selection_number - 1]["folder_name"]
 
-            return selected_template["folder_name"]
-
-        print(
-            f"Please select a number from 1 to {len(templates)}."
-        )
+        print(f"Please select a number from 1 to {len(templates)}.")
 
 
 def load_template(template_name):
@@ -186,19 +147,15 @@ def load_template(template_name):
     template_file = template_folder / "template.json"
 
     if not template_folder.exists():
-        print()
-        print("ERROR: Template folder not found:")
+        print("\nERROR: Template folder not found:")
         print(template_folder)
-
         return None, None
 
     template = read_template_json(template_folder)
 
     if template is None:
-        print()
-        print("ERROR: Template could not be loaded:")
+        print("\nERROR: Template could not be loaded:")
         print(template_file)
-
         return None, None
 
     required_fields = [
@@ -209,66 +166,49 @@ def load_template(template_name):
         "export_format",
     ]
 
-    missing_fields = []
-
-    for field in required_fields:
-        if field not in template:
-            missing_fields.append(field)
+    missing_fields = [
+        field
+        for field in required_fields
+        if field not in template
+    ]
 
     if missing_fields:
-        print()
-        print("ERROR: Template settings are missing:")
-        
+        print("\nERROR: Template settings are missing:")
+
         for field in missing_fields:
             print(f"- {field}")
 
-        print()
-        print("Template file:")
+        print("\nTemplate file:")
         print(template_file)
 
         return None, None
 
-    template_path = (
-        template_folder /
-        template["template_file"]
-    )
+    template_path = template_folder / template["template_file"]
 
     if not template_path.exists():
-        print()
-        print("ERROR: GIMP template file not found:")
+        print("\nERROR: GIMP template file not found:")
         print(template_path)
-
         return None, None
 
     icon_size = template["icon_size"]
 
     if not isinstance(icon_size, int) or icon_size <= 0:
-        print()
-        print("ERROR: icon_size must be a positive whole number.")
+        print("\nERROR: icon_size must be a positive whole number.")
         print(f"Current value: {icon_size}")
-
         return None, None
 
     export_format = template["export_format"]
 
     if not isinstance(export_format, str):
-        print()
-        print("ERROR: export_format must be text.")
+        print("\nERROR: export_format must be text.")
         print(f"Current value: {export_format}")
-
         return None, None
 
     if not export_format.startswith("."):
-        export_format = f".{export_format}"
-        template["export_format"] = export_format
+        template["export_format"] = f".{export_format}"
 
-    preview_name = template.get("preview")
-
-    if preview_name:
-        template["preview_path"] = (
-            template_folder /
-            preview_name
-        )
+    if preview_name := template.get("preview"):
+        template["preview_path"] = template_folder / preview_name
 
     template["template_path"] = template_path
 
