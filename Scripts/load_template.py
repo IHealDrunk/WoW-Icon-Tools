@@ -101,15 +101,19 @@ def select_template():
             template_data["folder_name"],
         )
 
+        description = info.get("description")
+        author = info.get("author")
+        version = info.get("version")
+
         print(f"{number}. {template_name}")
 
-        if description := info.get("description"):
+        if description:
             print(f"   {description}")
 
-        if author := info.get("author"):
+        if author:
             print(f"   Author: {author}")
 
-        if version := info.get("version"):
+        if version:
             print(f"   Version: {version}")
 
         print()
@@ -207,7 +211,9 @@ def load_template(template_name):
     if not export_format.startswith("."):
         template["export_format"] = f".{export_format}"
 
-    if preview_name := template.get("preview"):
+    preview_name = template.get("preview")
+
+    if preview_name:
         template["preview_path"] = template_folder / preview_name
 
     template["template_path"] = template_path
