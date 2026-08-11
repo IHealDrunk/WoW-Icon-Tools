@@ -37,7 +37,7 @@ Whether you're updating Blizzard's entire icon library or building a brand-new v
 
 ```text
 ==================================================
- WoW Icon Tools v1.0.0
+ WoW Icon Tools v1.1.0
 ==================================================
 
 ℹ Preparing icon pipeline...
@@ -318,7 +318,7 @@ This ensures every icon is rendered using the newly selected template.
 ---
 
 
-## Version 1.0 — Released
+## Version 1.1 — Released
 
 - ✅ Complete batch processing pipeline
 - ✅ BLP-to-PNG conversion
