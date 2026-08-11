@@ -2,6 +2,7 @@ APP_NAME = "WoW Icon Tools"
 APP_VERSION = "1.0.0"
 
 HEADER_WIDTH = 50
+PROGRESS_BAR_WIDTH = 30
 
 
 def line(character: str = "=") -> None:
@@ -74,25 +75,73 @@ def progress(
     status: str | None = None
 ) -> None:
     """
-    Print a numbered progress message.
+    Display a single-line progress bar.
 
     Example:
-    [1/100] ✓ Fireball.tga
+    [███████████████░░░░░░░░░░░░░░░] 50.0%  50/100  ✓ Saved: Fireball.tga
     """
 
-    prefix = f"[{current}/{total}]"
+    if total <= 0:
+        return
 
+    # Calculate completion percentage
+    ratio = min(
+        max(current / total, 0),
+        1
+    )
+
+    percentage = ratio * 100
+
+
+    # Calculate progress bar
+    filled_length = int(
+        PROGRESS_BAR_WIDTH * ratio
+    )
+
+    empty_length = (
+        PROGRESS_BAR_WIDTH - filled_length
+    )
+
+    bar = (
+        "█" * filled_length
+        + "░" * empty_length
+    )
+
+
+    # Choose status symbol
     if status == "success":
-        print(f"{prefix} ✓ {message}")
+        symbol = "✓"
 
     elif status == "warning":
-        print(f"{prefix} ⚠ {message}")
+        symbol = "⚠"
 
     elif status == "error":
-        print(f"{prefix} ✗ {message}")
+        symbol = "✗"
 
     else:
-        print(f"{prefix} {message}")
+        symbol = "•"
+
+
+    # Build progress line
+    progress_line = (
+        f"[{bar}] "
+        f"{percentage:5.1f}%  "
+        f"{current}/{total}  "
+        f"{symbol} {message}"
+    )
+
+
+    # Update the same console line
+    print(
+        f"\r{progress_line}\033[K",
+        end="",
+        flush=True
+    )
+
+
+    # Move to a new line when complete
+    if current >= total:
+        print()
 
 
 def labeled_value(

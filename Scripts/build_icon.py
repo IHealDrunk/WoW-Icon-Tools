@@ -54,12 +54,63 @@ def format_elapsed_time(seconds: float) -> str:
     return f"{seconds}s"
 
 
+def confirm_existing_icons() -> bool:
+    """
+    Warn the user if the ICONS folder already
+    contains files before starting a new build.
+    """
+
+    if not ICONS_FOLDER.exists():
+        return True
+
+    if not any(ICONS_FOLDER.iterdir()):
+        return True
+
+    print()
+    warning(
+        "The ICONS folder is not empty."
+    )
+
+    print()
+    print(
+        "Existing icons may be skipped "
+        "during this build."
+    )
+
+    print()
+    print("[Y] Yes - Continue")
+    print("[N] No  - Cancel")
+    print()
+
+    while True:
+
+        choice = input(
+            "Choice: "
+        ).strip().lower()
+
+        if choice in ("y", "yes"):
+            return True
+
+        if choice in ("n", "no"):
+            return False
+
+        warning(
+            "Please enter Y or N."
+        )
+
+
 def build_icons():
 
     build_start_time = perf_counter()
 
     app_header()
     info("Preparing icon pipeline...")
+
+    # Check for existing finished icons
+    if not confirm_existing_icons():
+        print()
+        warning("Build cancelled.")
+        return
 
     # Step 1 - Convert BLP files
     section("Converting BLP Files")

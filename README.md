@@ -317,7 +317,6 @@ This ensures every icon is rendered using the newly selected template.
 
 ---
 
-# 🛣 Roadmap
 
 ## Version 1.0 — Released
 
@@ -334,14 +333,12 @@ This ensures every icon is rendered using the newly selected template.
 - ✅ Template validation
 - ✅ Automatic GIMP detection
 - ✅ Professional console interface
+- ✅ Progress bar
+- ✅ Warning when `ICONS` folder already contains files
 
 ## Future Improvements
 
-- 🖼 Display template preview images
-- 🧹 Optional warning when the `ICONS` folder already contains files
-- ⚙ Configuration file
-- 📊 Progress bar
-- 📦 Additional export formats
+- 
 
 ---
 
