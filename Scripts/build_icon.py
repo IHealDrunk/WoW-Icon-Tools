@@ -1,4 +1,5 @@
 from time import perf_counter
+import shutil
 
 from blp_to_png import convert_blp_to_png
 from resize_png import resize_icons
@@ -54,49 +55,187 @@ def format_elapsed_time(seconds: float) -> str:
     return f"{seconds}s"
 
 
-def confirm_existing_icons() -> bool:
+def clear_icons_folder() -> bool:
     """
-    Warn the user if the ICONS folder already
-    contains files before starting a new build.
+    Delete all contents of the ICONS folder.
+
+    The ICONS folder itself is preserved.
+
+    Returns True if the folder was cleared
+    successfully.
     """
 
+    try:
+
+        for item in ICONS_FOLDER.iterdir():
+
+            if item.is_dir():
+                shutil.rmtree(item)
+
+            else:
+                item.unlink()
+
+        return True
+
+    except OSError as clear_error:
+
+        print()
+        error(
+            "Could not completely clear "
+            "the ICONS folder."
+        )
+
+        print()
+        print(clear_error)
+
+        return False
+
+
+def confirm_existing_icons() -> bool:
+    """
+    Check whether the ICONS folder already
+    contains files.
+
+    The user may:
+
+    1. Resume the existing build.
+    2. Delete existing output and start over.
+    3. Cancel the build.
+    """
+
+    # No output folder yet.
     if not ICONS_FOLDER.exists():
         return True
 
+    # Output folder exists but is empty.
     if not any(ICONS_FOLDER.iterdir()):
         return True
 
     print()
+
     warning(
-        "The ICONS folder is not empty."
+        "Existing icons detected in "
+        "the ICONS folder."
     )
 
     print()
     print(
-        "Existing icons may be skipped "
-        "during this build."
+        "WoW Icon Tools can resume the previous "
+        "build or start over."
     )
 
     print()
-    print("[Y] Yes - Continue")
-    print("[N] No  - Cancel")
+    print("[1] Resume Build")
+    print("    Skip completed icons and continue.")
+
+    print()
+    print("[2] Start Over")
+    print(
+        "    Delete existing icons and "
+        "rebuild everything."
+    )
+
+    print()
+    print("[3] Cancel")
+
     print()
 
     while True:
 
         choice = input(
-            "Choice: "
-        ).strip().lower()
+            "Select an option: "
+        ).strip()
 
-        if choice in ("y", "yes"):
+        # -------------------------
+        # Resume Build
+        # -------------------------
+
+        if choice == "1":
+
+            print()
+            info(
+                "Resuming build. Existing "
+                "finished icons will be skipped."
+            )
+
             return True
 
-        if choice in ("n", "no"):
+        # -------------------------
+        # Start Over
+        # -------------------------
+
+        if choice == "2":
+
+            print()
+
+            warning(
+                "START OVER will permanently delete "
+                "all files in the ICONS folder."
+            )
+
+            print()
+            print(
+                "This action cannot be undone."
+            )
+
+            print()
+
+            confirmation = input(
+                "Type YES to confirm: "
+            ).strip()
+
+            if confirmation != "YES":
+
+                print()
+                warning(
+                    "Start Over cancelled. "
+                    "No files were deleted."
+                )
+
+                continue
+
+            print()
+            info(
+                "Clearing existing icons..."
+            )
+
+            if not clear_icons_folder():
+
+                print()
+                error(
+                    "Build cancelled because the "
+                    "ICONS folder could not be cleared."
+                )
+
+                return False
+
+            print()
+            success(
+                "ICONS folder cleared."
+            )
+
+            print()
+            info(
+                "Starting a fresh build."
+            )
+
+            return True
+
+        # -------------------------
+        # Cancel
+        # -------------------------
+
+        if choice == "3":
+
             return False
 
+        print()
+
         warning(
-            "Please enter Y or N."
+            "Please select 1, 2, or 3."
         )
+
+        print()
 
 
 def build_icons():
@@ -108,24 +247,30 @@ def build_icons():
 
     # Check for existing finished icons
     if not confirm_existing_icons():
+
         print()
         warning("Build cancelled.")
+
         return
 
     # Step 1 - Convert BLP files
     section("Converting BLP Files")
+
     convert_blp_to_png()
 
     # Step 2 - Resize PNG files
     section("Resizing PNG Files")
+
     resize_icons()
 
     # Step 3 - Choose a template
     template_name = select_template()
 
     if template_name is None:
+
         print()
         warning("Build cancelled.")
+
         return
 
     # Step 4 - Load the selected template
@@ -134,11 +279,14 @@ def build_icons():
     )
 
     if template is None:
+
         print()
+
         error(
             f'Template "{template_name}" '
             "could not be loaded."
         )
+
         return
 
     section("Selected Template")
@@ -183,12 +331,15 @@ def build_icons():
     total = len(png_files)
 
     print()
+
     info(
         f"Found {total} resized PNG file(s)."
     )
 
     if total == 0:
+
         print()
+
         error(
             "No resized PNG files were found."
         )
@@ -196,6 +347,7 @@ def build_icons():
         print()
         print("Expected folder:")
         print(RESIZED_FOLDER)
+
         return
 
     # Step 6 - Prepare output folder
@@ -230,6 +382,7 @@ def build_icons():
 
         # Skip icons already rendered
         if output_file.exists():
+
             skipped += 1
 
             progress(
@@ -242,6 +395,7 @@ def build_icons():
             continue
 
         try:
+
             render_successful = render_icon(
                 template,
                 png_file,
@@ -249,6 +403,7 @@ def build_icons():
             )
 
             if render_successful:
+
                 rendered += 1
 
                 progress(
@@ -259,6 +414,7 @@ def build_icons():
                 )
 
             else:
+
                 failed += 1
 
                 progress(
@@ -269,6 +425,7 @@ def build_icons():
                 )
 
         except Exception as render_error:
+
             failed += 1
 
             progress(
