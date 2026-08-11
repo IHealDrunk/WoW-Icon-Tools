@@ -1,0 +1,13 @@
+{
+    "name": "Onyx",
+    "description": "Clean ElvUI-style icons with dark edges, and instense shadows.",
+    "author": "IHealDrunk",
+    "version": "1.0.0",
+
+    "template_file": "Onyx.xcf",
+    "preview": "preview.png",
+
+    "replace_layer": "ICON",
+    "icon_size": 128,
+    "export_format": "tga"
+}

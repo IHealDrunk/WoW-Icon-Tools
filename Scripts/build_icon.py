@@ -57,9 +57,9 @@ def format_elapsed_time(seconds: float) -> str:
 
 def clear_icons_folder() -> bool:
     """
-    Delete all contents of the ICONS folder.
+    Delete all generated contents of the ICONS folder.
 
-    The ICONS folder itself is preserved.
+    The ICONS folder itself and .gitkeep are preserved.
 
     Returns True if the folder was cleared
     successfully.
@@ -68,6 +68,10 @@ def clear_icons_folder() -> bool:
     try:
 
         for item in ICONS_FOLDER.iterdir():
+
+            # Never delete .gitkeep
+            if item.name == ".gitkeep":
+                continue
 
             if item.is_dir():
                 shutil.rmtree(item)
