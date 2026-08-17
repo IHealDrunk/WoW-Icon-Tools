@@ -1,6 +1,10 @@
 from PIL import Image
 
-from utils import PNG_FOLDER, RESIZED_FOLDER
+from utils import (
+    PNG_FOLDER,
+    RESIZED_FOLDER,
+    REVIEW_FOLDER,
+)
 
 
 # Crop settings
@@ -19,6 +23,7 @@ def resize_icons():
 
     processed = 0
     skipped = 0
+    review = 0
     errors = 0
 
     # Find all PNG files including subfolders
@@ -43,43 +48,74 @@ def resize_icons():
                 relative_path
             )
 
-            output_file.parent.mkdir(
-                parents=True,
-                exist_ok=True
+            review_file = (
+                REVIEW_FOLDER /
+                relative_path
             )
-
-            # Skip files already resized
-            if output_file.exists():
-
-                skipped += 1
-
-                print(
-                    f"[SKIPPED] {png_file.name}"
-                )
-
-                continue
 
             # Open image
             with Image.open(png_file) as img:
 
                 img = img.convert("RGBA")
 
-                # Only process original WoW 64x64 icons
-                if img.size != (64, 64):
+                original_size = img.size
+
+                # -----------------------------------
+                # Send non-64x64 images to REVIEW
+                # -----------------------------------
+
+                if original_size != (64, 64):
+
+                    review_file.parent.mkdir(
+                        parents=True,
+                        exist_ok=True
+                    )
+
+                    # Only create review copy if missing
+                    if not review_file.exists():
+
+                        img.save(
+                            review_file,
+                            "PNG"
+                        )
+
+                    review += 1
+
+                    print(
+                        f"[REVIEW] {png_file.name} "
+                        f"({original_size[0]}x{original_size[1]})"
+                    )
+
+                    continue
+
+                # -----------------------------------
+                # Skip files already resized
+                # -----------------------------------
+
+                output_file.parent.mkdir(
+                    parents=True,
+                    exist_ok=True
+                )
+
+                if output_file.exists():
 
                     skipped += 1
 
                     print(
-                        f"[SKIPPED] {png_file.name} ({img.size})"
+                        f"[SKIPPED] {png_file.name}"
                     )
 
                     continue
+
+                # -----------------------------------
+                # Resize standard 64x64 WoW icon
+                # -----------------------------------
 
                 print(
                     f"[OK] Resizing: {png_file.name}"
                 )
 
-                # Upscale
+                # Upscale to 128x128
                 img = img.resize(
                     (128, 128),
                     Image.Resampling.LANCZOS
@@ -90,7 +126,7 @@ def resize_icons():
                     CROP_BOX
                 )
 
-                # Restore final size
+                # Restore final 128x128 size
                 img = img.resize(
                     (128, 128),
                     Image.Resampling.LANCZOS
@@ -118,9 +154,10 @@ def resize_icons():
     print("===================================")
     print("Resize Complete")
     print("===================================")
-    print(f"Processed: {processed}")
-    print(f"Skipped:   {skipped}")
-    print(f"Errors:    {errors}")
+    print(f"Processed:          {processed}")
+    print(f"Already processed:  {skipped}")
+    print(f"Needs review:       {review}")
+    print(f"Errors:             {errors}")
     print("===================================")
 
 
