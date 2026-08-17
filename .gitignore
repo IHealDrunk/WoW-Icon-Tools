@@ -55,3 +55,6 @@ PNG_128x128_Resized/*
 
 ICONS/*
 !ICONS/.gitkeep
+
+REVIEW/*
+!REVIEW/.gitkeep
