@@ -189,7 +189,7 @@ Export Finished Icons
 
 If the build is interrupted, simply run it again.
 
-Existing icons are automatically skipped.
+Completed stages are reused when their SHA-256 fingerprints still match.
 
 ---
 
@@ -298,26 +298,6 @@ During rendering, WoW Icon Tools replaces that layer with each resized icon whil
 
 The optional `preview.png` should show what the finished template looks like.
 
-## ⚠️ Before Changing Templates
-
-WoW Icon Tools uses Resume Mode and skips icons that already exist in the `ICONS` folder.
-
-When switching to a different template—for example, from **Eclipse** to **Obsidian**—clear the contents of the `ICONS` folder before starting the new build.
-
-Otherwise, existing icons will be skipped and the folder may contain icons created with different templates.
-
-
-### Recommended Steps
-
-1. Open the `ICONS` folder.
-2. Delete all previously generated icons.
-3. Run `build_icon.py`.
-
-This ensures every icon is rendered using the newly selected template.
-
----
-
-
 ## Version 1.1 — Released
 
 - ✅ Complete batch processing pipeline
@@ -374,3 +354,80 @@ World of Warcraft® is a registered trademark of Blizzard Entertainment.
 WoW Icon Tools is an independent, fan-made utility created for the World of Warcraft community.
 
 This project is **not affiliated with, endorsed by, or sponsored by Blizzard Entertainment.**
+
+## Version 1.3.0: Incremental Builds and Recovery
+
+All three stages display percentage, files remaining, estimated time remaining
+(labelled "How much longer this shit will be"),
+completed work, reused outputs, and failures. Resizing also counts review files;
+conversion counts cached bad BLPs. Estimates adapt to the current processing rate.
+
+**Input sizes:** 64×64 BLPs use the original upscale/crop workflow. Native
+128×128 BLPs pass through without resizing or cropping. Both produce 128×128
+icons with the selected template. Other dimensions go to REVIEW. Previously
+reviewed 128×128 files are picked up automatically.
+
+**Your template-update workflow:** copy your existing Onyx, Eclipse, or other
+finished set into `ICONS`, select its template, and choose Resume Build. Each
+template has a separate completion history. New or changed source icons and
+missing/damaged outputs are rendered; unchanged recorded icons bypass GIMP.
+When existing files have no history for the selected template, choose **Use these
+as the existing [template] set** to adopt them without rendering. This confirms
+that they already use the selected template and match the current source icons.
+Invalid or incorrectly sized files cannot be adopted. A changed source with an
+existing record is rebuilt even if you choose adoption.
+
+Editing a template applies the updated style to new or changed icons during
+incremental updates. It does not automatically rebuild your whole existing set.
+Choose **Start Over** for a full rebuild with the current template. Its existing
+confirmation and `.gitkeep` protection remain. When rotating sets, keep your
+upload copies outside `ICONS` and replace that folder with the next template's set.
+Do not delete `Logs/build-state.json` if you want to retain all template histories.
+
+**Faster rendering:** up to 32 icons share one GIMP session and loaded master
+image; each render uses a fresh duplicate. Completed exports replace their
+outputs atomically. The remaining members of a failed batch are retried
+individually so one bad icon cannot block its peers.
+
+**Controls:** press **P** to pause, then **R** to resume or **S** for Save & Exit.
+**S** also works directly, and **Ctrl+C** requests a pause. Interactive key
+controls require a Windows console. In a live GIMP batch, completed exports are
+tracked individually; the small active batch may finish while paused or exiting.
+No new batch is scheduled. Uncommitted temporary exports are discarded and
+retried on recovery, while already published exports are reused.
+
+**Checkpoint:** `Logs/build-state.json` holds SHA-256 records for conversion,
+resizing, cached failures, and each template's finished icons. It is written
+atomically, normally at most once every two seconds during processing, and
+flushed at stage/batch boundaries and Save & Exit. Unexpected termination can
+require a small amount of uncheckpointed work to be repeated. Old checkpoints
+load without clearing your saved progress; matching old render records migrate
+to the selected template's history.
+
+**Skipping and validation:** unchanged good PNGs are reused after fingerprint
+checks, without decoding their BLPs again. Existing PNGs/resized PNGs without
+records are validated once and reused without rewriting when their pixels match.
+New/modified BLPs and missing/damaged intermediates are regenerated. Paths and
+extensions are compared case-insensitively, and nested paths are preserved.
+Unchanged failed BLPs are skipped using their cached source hashes and retried
+when they change. Output-write/permission failures are retried rather than cached
+as bad BLPs. Failed conversion never feeds old PNGs into later stages.
+
+BLP decoding supports Pillow palette/DXT formats and BLP2 raw BGRA (encoding 3).
+Invalid or truncated files report a re-extraction error. Files for deleted or
+now unsupported source dimensions remain in ICONS for manual cleanup. A corrupt
+checkpoint stops with an explanation; preserve it and move it aside to rebuild.
+
+Build helpers live in `Scripts/utils.py`, decoding/conversion in
+`Scripts/blp_to_png.py`, and the shared status display in `Scripts/console.py`.
+Temporary batch scripts/logs are removed after use.
+
+Run fixture tests from the project root:
+
+```powershell
+python -m unittest discover -s Tests -v
+```
+
+The final summary reports cached bad BLPs and files needing review separately
+from new failures. An unchanged cached bad file is skipped, not counted as a new
+error. Its source still needs re-extraction if you want to include that icon.
