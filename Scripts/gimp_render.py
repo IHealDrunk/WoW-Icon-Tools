@@ -1,15 +1,11 @@
-import json
 import subprocess
+import os
+import tempfile
+import time
+
 from pathlib import Path
 
-
-# ==========================================================
-# Project Paths
-# ==========================================================
-
-PROJECT_ROOT = Path(__file__).parent.parent
-
-TEMPLATES_FOLDER = PROJECT_ROOT / "Templates"
+from utils import LOGS_FOLDER, atomic_write
 
 
 def find_gimp() -> Path:
@@ -51,7 +47,7 @@ def find_gimp() -> Path:
     )
 
 
-GIMP_EXE = find_gimp()
+GIMP_EXE = None  # Locate lazily so conversion/tests work without GIMP.
 
 
 # ==========================================================
@@ -91,70 +87,6 @@ def get_gimp_error_output(
         "GIMP did not provide any additional "
         "error information."
     )
-
-
-# ==========================================================
-# Template Loading
-# ==========================================================
-
-def load_template_settings(template_name: str):
-    """
-    Load template.json for the selected template.
-    """
-
-    template_folder = TEMPLATES_FOLDER / template_name
-    settings_file = template_folder / "template.json"
-
-    if not template_folder.exists():
-        print("ERROR: Template folder was not found:")
-        print(template_folder)
-        return None
-
-    if not settings_file.exists():
-        print("ERROR: template.json was not found:")
-        print(settings_file)
-        return None
-
-    try:
-        with open(
-            settings_file,
-            "r",
-            encoding="utf-8"
-        ) as file:
-            settings = json.load(file)
-
-    except json.JSONDecodeError as error:
-        print("ERROR: template.json contains invalid JSON.")
-        print(error)
-        return None
-
-    required_fields = [
-        "name",
-        "template_file",
-        "replace_layer",
-        "icon_size",
-        "export_format",
-    ]
-
-    for field in required_fields:
-        if field not in settings:
-            print(
-                f"ERROR: Missing template setting: {field}"
-            )
-            return None
-
-    settings["template_folder"] = template_folder
-    settings["template_path"] = (
-        template_folder
-        / settings["template_file"]
-    )
-
-    if not settings["template_path"].exists():
-        print("ERROR: GIMP template file was not found:")
-        print(settings["template_path"])
-        return None
-
-    return settings
 
 
 # ==========================================================
@@ -265,7 +197,8 @@ def validate_template(
     )
 
     command = [
-        str(GIMP_EXE),
+        str(GIMP_EXE or find_gimp()),
+        "--new-instance",
         "--no-interface",
         "--batch-interpreter=plug-in-script-fu-eval",
         f"--batch={script_fu_command}",
@@ -278,6 +211,8 @@ def validate_template(
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
 
     except OSError as error:
@@ -310,6 +245,7 @@ def make_render_command(
     input_icon: Path,
     output_icon: Path,
     replace_layer_name: str,
+    use_loaded_template: bool = False,
 ) -> str:
     """
     Build the Script-Fu command that renders one icon.
@@ -331,6 +267,9 @@ def make_render_command(
         replace_layer_name
     )
 
+    image_initializer = ('(gimp-image-duplicate wow-master-image)' if use_loaded_template
+                         else f'(gimp-file-load RUN-NONINTERACTIVE "{template_path_text}")')
+
     return f"""
 (script-fu-use-v3)
 
@@ -338,10 +277,7 @@ def make_render_command(
     (
         ; Open a fresh copy of the master template.
         (image
-            (gimp-file-load
-                RUN-NONINTERACTIVE
-                "{template_path_text}"
-            )
+            {image_initializer}
         )
 
         ; Read the template's root layer stack.
@@ -462,7 +398,7 @@ def make_render_command(
 # Icon Rendering
 # ==========================================================
 
-def render_icon(
+def _render_icon(
     template_settings: dict,
     input_icon: Path,
     output_icon: Path,
@@ -509,7 +445,8 @@ def render_icon(
     )
 
     command = [
-        str(GIMP_EXE),
+        str(GIMP_EXE or find_gimp()),
+        "--new-instance",
         "--no-interface",
         "--batch-interpreter=plug-in-script-fu-eval",
         f"--batch={script_fu_command}",
@@ -522,6 +459,8 @@ def render_icon(
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
 
     except OSError as error:
@@ -543,3 +482,125 @@ def render_icon(
         )
 
     return True
+
+def render_icon(template_settings, input_icon, output_icon):
+    """Publish only a completed export; preserve the old file on failure."""
+    atomic_write(output_icon, lambda temporary: _render_icon(
+        template_settings, input_icon, temporary))
+    return True
+
+
+BATCH_SIZE = 32
+
+
+def render_batch(template_settings, jobs, on_result, control=None):
+    """Render (input, output) pairs with one GIMP and one loaded template.
+
+    A closed receipt is written after each completed export. Only receipted
+    outputs are published. Callbacks commit those files before polling controls;
+    Save & Exit terminates only this isolated GIMP and discards unfinished work.
+    """
+    if not jobs:
+        return
+    LOGS_FOLDER.mkdir(parents=True, exist_ok=True)
+    process = None
+    temporary_outputs = []
+    completed = set()
+    try:
+        with tempfile.TemporaryDirectory(prefix='.wow-batch-', dir=LOGS_FOLDER) as directory:
+            scratch = Path(directory)
+            commands = ['(script-fu-use-v3)',
+                        '(define wow-master-image (gimp-file-load RUN-NONINTERACTIVE "'
+                        + escape_script_fu_string(str(template_settings['template_path'].resolve()))
+                        + '"))']
+            receipts = []
+            extension = '.' + template_settings['export_format'].lower().lstrip('.')
+            for index, (source, output) in enumerate(jobs):
+                source, output = Path(source), Path(output)
+                if not source.is_file() or output.suffix.lower() != extension:
+                    raise ValueError(f'Invalid render input/output: {source} -> {output}')
+                output.parent.mkdir(parents=True, exist_ok=True)
+                fd, filename = tempfile.mkstemp(prefix='.wow-', suffix=extension, dir=output.parent)
+                os.close(fd)
+                temporary = Path(filename)
+                temporary_outputs.append(temporary)
+                receipt = scratch / f'{index}.done'
+                receipts.append(receipt)
+                commands.append(make_render_command(template_settings['template_path'], source,
+                                temporary, template_settings['replace_layer'], use_loaded_template=True))
+                commands.append('(with-output-to-file "'
+                                + escape_script_fu_string(str(receipt.resolve()))
+                                + '" (lambda () (display "ok")))')
+            commands.append('(gimp-image-delete wow-master-image)')
+            script = scratch / 'batch.scm'
+            script.write_text('\n'.join(commands), encoding='utf-8')
+            log = scratch / 'gimp.log'
+            command = [str(GIMP_EXE or find_gimp()), '--new-instance', '--no-interface',
+                       '--batch-interpreter=plug-in-script-fu-eval',
+                       '--batch=(load "' + escape_script_fu_string(str(script.resolve())) + '")', '--quit']
+            def collect():
+                for index, receipt in enumerate(receipts):
+                    if index in completed or not receipt.is_file():
+                        continue
+                    # A partially written marker never counts as completion.
+                    try:
+                        if receipt.read_text(encoding='utf-8') != 'ok':
+                            continue
+                    except OSError:
+                        continue
+                    temporary = temporary_outputs[index]
+                    source, output = jobs[index]
+                    try:
+                        if temporary.stat().st_size == 0:
+                            continue
+                        os.replace(temporary, output)
+                    except OSError as exc:
+                        completed.add(index)
+                        on_result(source, output, f'Could not publish completed export: {exc}')
+                    else:
+                        completed.add(index)
+                        on_result(source, output, None)
+                    if control:
+                        control.boundary()
+            with log.open('wb') as stream:
+                process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT,
+                                           creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP
+                                                          if os.name == 'nt' else 0))
+                try:
+                    while process.poll() is None:
+                        collect()
+                        if control:
+                            control.boundary()
+                        time.sleep(0.1)
+                    collect()
+                finally:
+                    if process.poll() is None:
+                        # Let the small active batch close its Script-Fu file and
+                        # plug-ins normally. Killing only the launcher can orphan
+                        # its children on Windows and leave temporary files locked.
+                        print('\nFinishing the active GIMP batch before closing...')
+                        try:
+                            process.wait(timeout=30)
+                        except subprocess.TimeoutExpired:
+                            if os.name == 'nt':
+                                subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                                               capture_output=True, check=False)
+                            else:
+                                process.kill()
+                            process.wait(timeout=5)
+            # A bad icon may abort a Script-Fu batch. Retry its uncompleted
+            # peers individually so one failure cannot block the rest forever.
+            for index, (source, output) in enumerate(jobs):
+                if index in completed:
+                    continue
+                if control:
+                    control.boundary()
+                try:
+                    render_icon(template_settings, source, output)
+                except Exception as exc:
+                    on_result(source, output, str(exc))
+                else:
+                    on_result(source, output, None)
+    finally:
+        for temporary in temporary_outputs:
+            temporary.unlink(missing_ok=True)

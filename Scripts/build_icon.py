@@ -1,14 +1,18 @@
 from time import perf_counter
 import shutil
+import json
+import signal
+from utils import (BuildState, BuildControl, SaveAndExit, sha256, path_key,
+                   RESIZED_FOLDER, ICONS_FOLDER)
 
 from blp_to_png import convert_blp_to_png
 from resize_png import resize_icons
-from utils import RESIZED_FOLDER, ICONS_FOLDER
 from load_template import (
     select_template,
     load_template,
 )
-from gimp_render import render_icon
+from gimp_render import render_batch, validate_template, BATCH_SIZE
+from PIL import Image
 from console import (
     app_header,
     section,
@@ -16,43 +20,11 @@ from console import (
     success,
     warning,
     error,
-    progress,
+    StageProgress,
     labeled_value,
     build_summary,
+    duration_text,
 )
-
-
-def format_elapsed_time(seconds: float) -> str:
-    """
-    Convert elapsed seconds into a readable time.
-    """
-
-    total_seconds = int(seconds)
-
-    hours, remainder = divmod(
-        total_seconds,
-        3600
-    )
-
-    minutes, seconds = divmod(
-        remainder,
-        60
-    )
-
-    if hours > 0:
-        return (
-            f"{hours}h "
-            f"{minutes}m "
-            f"{seconds}s"
-        )
-
-    if minutes > 0:
-        return (
-            f"{minutes}m "
-            f"{seconds}s"
-        )
-
-    return f"{seconds}s"
 
 
 def clear_icons_folder() -> bool:
@@ -112,7 +84,7 @@ def confirm_existing_icons() -> bool:
         return True
 
     # Output folder exists but is empty.
-    if not any(ICONS_FOLDER.iterdir()):
+    if not any(p.name != ".gitkeep" for p in ICONS_FOLDER.iterdir()):
         return True
 
     print()
@@ -159,7 +131,7 @@ def confirm_existing_icons() -> bool:
             print()
             info(
                 "Resuming build. Existing "
-                "finished icons will be skipped."
+                "finished icons will be checked and reused when unchanged."
             )
 
             return True
@@ -242,7 +214,7 @@ def confirm_existing_icons() -> bool:
         print()
 
 
-def build_icons():
+def run_build(state, control):
 
     build_start_time = perf_counter()
 
@@ -258,17 +230,23 @@ def build_icons():
         return
 
     # Step 1 - Convert BLP files
-    section("Converting BLP Files")
+    section("Checking and Converting BLP Files")
 
-    convert_blp_to_png()
+    state.data.update(stage_errors=0, known_bad_blps=0, review_count=0)
+    png_inputs = convert_blp_to_png(state, control)
 
     # Step 2 - Resize PNG files
     section("Resizing PNG Files")
 
-    resize_icons()
+    png_files = resize_icons(state, control, png_inputs)
 
     # Step 3 - Choose a template
-    template_name = select_template()
+    template_name = state.data.get("template")
+    if template_name:
+        choice = input(f'Recover template "{template_name}"? [Y] Recover / [N] Select another: ').strip().casefold()
+        if choice != 'y':
+            template_name = None
+    template_name = template_name or select_template()
 
     if template_name is None:
 
@@ -292,6 +270,20 @@ def build_icons():
         )
 
         return
+
+    valid, reason = validate_template(template)
+    if not valid:
+        error(reason)
+        return
+    if template['icon_size'] != 128:
+        error('This pipeline requires a 128x128 template.')
+        return
+    template['folder_name'] = template_name
+    state.data['template'] = template_name
+    state.data['status'] = 'running'
+    state.save()
+    template_fingerprint = sha256(template['template_path']) + json.dumps(
+        {k: template[k] for k in ('replace_layer', 'icon_size', 'export_format')}, sort_keys=True)
 
     section("Selected Template")
 
@@ -328,9 +320,7 @@ def build_icons():
     )
 
     # Step 5 - Find resized PNG files
-    png_files = sorted(
-        RESIZED_FOLDER.glob("*.png")
-    )
+    png_files = sorted(png_files)
 
     total = len(png_files)
 
@@ -360,88 +350,34 @@ def build_icons():
         exist_ok=True
     )
 
-    rendered = 0
-    skipped = 0
-    failed = 0
-
-    export_extension = (
-        "."
-        + template["export_format"]
-        .lower()
-        .lstrip(".")
-    )
-
     section("Rendering Icons")
 
-    # Step 7 - Render every icon
-    for index, png_file in enumerate(
-        png_files,
-        start=1
-    ):
+    state.migrate_render_history(template_name, template_fingerprint)
+    records = state.template_history(template_name)['records']
+    extension = '.' + template['export_format'].lower().lstrip('.')
+    unrecorded = sum(1 for source in png_files
+                     if path_key(source.relative_to(RESIZED_FOLDER)) not in records
+                     and (ICONS_FOLDER / source.relative_to(RESIZED_FOLDER).with_suffix(extension)).is_file())
+    adopt_existing = False
+    if unrecorded:
+        print(f'\nFound {unrecorded} existing icons without history for {template_name}.')
+        print(f'[1] Use these as the existing {template_name} set')
+        print('    Confirms they already match this template and the current source icons.')
+        print('[2] Rebuild icons without history')
+        print('[3] Cancel')
+        while True:
+            choice = input('Select an option: ').strip()
+            if choice in ('1', '2', '3'):
+                break
+        if choice == '3':
+            return
+        adopt_existing = choice == '1'
+    rendered, skipped, failed = render_icons(
+        template, png_files, state, control, template_fingerprint, adopt_existing)
 
-        output_file = (
-            ICONS_FOLDER
-            / f"{png_file.stem}{export_extension}"
-        )
-
-        # Skip icons already rendered
-        if output_file.exists():
-
-            skipped += 1
-
-            progress(
-                index,
-                total,
-                f"Skipped: {output_file.name}",
-                "warning"
-            )
-
-            continue
-
-        try:
-
-            render_successful = render_icon(
-                template,
-                png_file,
-                output_file
-            )
-
-            if render_successful:
-
-                rendered += 1
-
-                progress(
-                    index,
-                    total,
-                    f"Saved: {output_file.name}",
-                    "success"
-                )
-
-            else:
-
-                failed += 1
-
-                progress(
-                    index,
-                    total,
-                    f"Failed: {png_file.name}",
-                    "error"
-                )
-
-        except Exception as render_error:
-
-            failed += 1
-
-            progress(
-                index,
-                total,
-                f"Failed: {png_file.name}",
-                "error"
-            )
-
-            print(
-                f"    Reason: {render_error}"
-            )
+    control.boundary()
+    state.data['status'] = 'complete' if failed == 0 and not state.data.get('stage_errors') else 'incomplete'
+    state.save()
 
     elapsed_time = (
         perf_counter()
@@ -453,12 +389,110 @@ def build_icons():
         total=total,
         rendered=rendered,
         skipped=skipped,
-        failed=failed,
-        elapsed_time=format_elapsed_time(
-            elapsed_time
-        ),
-        output_folder=ICONS_FOLDER
+        failed=failed + state.data.get('stage_errors', 0),
+        elapsed_time=duration_text(elapsed_time, include_seconds=True),
+        output_folder=ICONS_FOLDER,
+        known_bad=state.data.get('known_bad_blps', 0),
+        review=state.data.get('review_count', 0),
     )
+
+
+def render_icons(template, png_files, state, control, template_fingerprint, adopt_existing=False):
+    rendered = skipped = failed = adopted = checked = 0
+    template_name = template.get('folder_name', template.get('name', 'default'))
+    extension = '.' + template['export_format'].lower().lstrip('.')
+    display = StageProgress(len(png_files), control)
+    pending = []
+    fingerprints = {}
+    records = state.template_history(template_name)['records']
+    print(f'Checking {len(png_files)} icon(s) for {template_name}; completed exports are reused.')
+    for png_file in png_files:
+        control.boundary()
+        relative = png_file.relative_to(RESIZED_FOLDER)
+        output_file = ICONS_FOLDER / relative.with_suffix(extension)
+        try:
+            source_hash = sha256(png_file)
+            if state.render_current(template_name, relative, source_hash, output_file):
+                skipped += 1
+                checked += 1
+            elif adopt_existing and path_key(relative) not in records and output_file.is_file():
+                # Adoption is an explicit user assertion of template/source identity.
+                # Reject incomplete or incorrectly sized files rather than blessing them.
+                try:
+                    with Image.open(output_file) as image:
+                        valid = image.size == (128, 128)
+                        image.load()
+                except (OSError, ValueError):
+                    valid = False
+                if valid:
+                    state.render_complete(template_name, relative, source_hash, output_file, template_fingerprint)
+                    skipped += 1
+                    adopted += 1
+                    checked += 1
+                else:
+                    pending.append((png_file, output_file))
+                    fingerprints[png_file] = source_hash
+            else:
+                pending.append((png_file, output_file))
+                fingerprints[png_file] = source_hash
+        except Exception as exc:
+            failed += 1
+            checked += 1
+            print(f'\n[FAILED] {relative}: {exc}')
+        display.update(checked, Rendered=rendered, Reused=skipped, Adopted=adopted, Failed=failed)
+    state.save()
+    display.set_work_remaining(len(pending))
+    work_done = 0
+    finished = set()
+    def completed(source, output, reason):
+        nonlocal rendered, failed, checked, work_done
+        if source in finished:
+            return
+        finished.add(source)
+        relative = source.relative_to(RESIZED_FOLDER)
+        if reason is None:
+            try:
+                if sha256(source) != fingerprints[source]:
+                    reason = 'Source changed during rendering; retry next run'
+            except OSError as exc:
+                reason = f'Could not verify rendered source: {exc}'
+        if reason is None:
+            state.render_complete(template_name, relative, fingerprints[source], output, template_fingerprint)
+            rendered += 1
+        else:
+            failed += 1
+            print(f'\n[FAILED] {relative}: {reason}')
+        checked += 1
+        work_done += 1
+        display.update(checked, work_done=work_done, Rendered=rendered,
+                       Reused=skipped, Adopted=adopted, Failed=failed)
+    for offset in range(0, len(pending), BATCH_SIZE):
+        control.boundary()
+        jobs = pending[offset:offset + BATCH_SIZE]
+        try:
+            render_batch(template, jobs, completed, control)
+        except SaveAndExit:
+            raise
+        except Exception as exc:
+            for source, output in jobs:
+                if source not in finished:
+                    completed(source, output, str(exc))
+        state.save()
+    state.save()
+    return rendered, skipped, failed
+
+
+def build_icons():
+    state = BuildState(checkpoint_interval=2.0)
+    control = BuildControl(state)
+    info('Controls: P = Pause, S = Save & Exit; Ctrl+C opens Pause. Active GIMP batches finish safely.')
+    previous_handler = signal.signal(signal.SIGINT, control.request_pause)
+    try:
+        run_build(state, control)
+    except SaveAndExit:
+        info('Progress saved. Run build_icon.py again to recover.')
+    finally:
+        signal.signal(signal.SIGINT, previous_handler)
 
 
 if __name__ == "__main__":
