@@ -58,3 +58,5 @@ ICONS/*
 
 REVIEW/*
 !REVIEW/.gitkeep
+# Persistent local recovery data
+Logs/
