@@ -1,8 +1,11 @@
+from time import perf_counter
+
 APP_NAME = "WoW Icon Tools"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.3.0"
 
 HEADER_WIDTH = 50
 PROGRESS_BAR_WIDTH = 30
+REMAINING_TIME_LABEL = "How much longer this shit will be"
 
 
 def line(character: str = "=") -> None:
@@ -171,7 +174,9 @@ def build_summary(
     skipped: int,
     failed: int,
     elapsed_time: str,
-    output_folder
+    output_folder,
+    known_bad: int = 0,
+    review: int = 0,
 ) -> None:
     """
     Print the final build summary.
@@ -203,10 +208,9 @@ def build_summary(
         skipped
     )
 
-    labeled_value(
-        "Failed",
-        failed
-    )
+    labeled_value("Needs Review", review)
+    labeled_value("Known bad BLPs", known_bad)
+    labeled_value("New failures", failed)
 
     print()
 
@@ -229,6 +233,62 @@ def build_summary(
             f"Build completed with {failed} error(s)."
         )
 
+    if known_bad:
+        warning(f'{known_bad} unchanged bad BLP(s) were skipped; '
+                're-extract their sources to include them.')
     print()
     print(f"Thank you for using {APP_NAME}!")
     line()
+
+def duration_text(seconds, include_seconds=False):
+    seconds = max(0, int(seconds))
+    hours, remaining = divmod(seconds, 3600)
+    minutes, seconds = divmod(remaining, 60)
+    if hours:
+        text = f'{hours}h {minutes}m'
+        return f'{text} {seconds}s' if include_seconds else text
+    if minutes:
+        return f'{minutes}m {seconds}s'
+    return f'{seconds}s'
+
+
+class StageProgress:
+    """One progress layout with an adaptive time estimate for every stage."""
+    def __init__(self, total, control=None):
+        self.control = control
+        self.paused_at_start = getattr(control, "paused_seconds", 0)
+        self.work_paused_at_start = self.paused_at_start
+        self.total = total
+        self.last_update = 0.0
+        self.started = perf_counter()
+        self.work_total = None
+        self.work_started = self.started
+
+    def set_work_remaining(self, total):
+        # Rendering starts after a scan of reusable files: estimate actual work,
+        # rather than treating fast skips as representative GIMP renders.
+        self.work_total = total
+        self.work_started = perf_counter()
+        self.work_paused_at_start = getattr(self.control, "paused_seconds", 0)
+        self.last_update = 0.0
+
+    def update(self, current, work_done=None, **counts):
+        now = perf_counter()
+        if now - self.last_update >= 0.1 or current == self.total:
+            paused = getattr(self.control, 'paused_seconds', 0)
+            elapsed = max(0, now - self.started - (paused - self.paused_at_start))
+            work_elapsed = max(0, now - self.work_started - (paused - self.work_paused_at_start))
+            if current >= self.total:
+                eta = '0s'
+            elif self.work_total is not None:
+                eta = (duration_text(work_elapsed / work_done
+                                     * (self.work_total - work_done))
+                       if work_done else 'estimating')
+            else:
+                eta = (duration_text(elapsed / current * (self.total - current))
+                       if current else 'estimating')
+            message = f'Left: {self.total - current} | {REMAINING_TIME_LABEL}: {eta}'
+            for label, value in counts.items():
+                message += f" | {label.replace('_', ' ')}: {value}"
+            progress(current, self.total, message)
+            self.last_update = now

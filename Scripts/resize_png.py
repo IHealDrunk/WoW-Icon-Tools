@@ -1,165 +1,71 @@
 from PIL import Image
+from utils import (PNG_FOLDER, RESIZED_FOLDER, REVIEW_FOLDER,
+                   BuildState, discover, sha256, atomic_write, path_key, image_matches)
+from console import StageProgress
 
-from utils import (
-    PNG_FOLDER,
-    RESIZED_FOLDER,
-    REVIEW_FOLDER,
-)
-
-
-# Crop settings
-CROP_BOX = (
-    6,
-    6,
-    122,
-    122
-)
+CROP_BOX = (6, 6, 122, 122)
 
 
-def resize_icons():
-
-    print("Starting PNG resize...")
-    print()
-
-    processed = 0
-    skipped = 0
-    review = 0
-    errors = 0
-
-    # Find all PNG files including subfolders
-    png_files = list(
-        PNG_FOLDER.rglob("*.png")
-    )
-
-    print(f"Found {len(png_files)} PNG files")
-    print()
-
-    for png_file in png_files:
-
+def resize_icons(state=None, control=None, png_files=None):
+    state = state or BuildState()
+    ready = []
+    processed = skipped = review = errors = 0
+    files = discover(PNG_FOLDER, '.png') if png_files is None else png_files
+    display = StageProgress(len(files), control)
+    print(f'Checking {len(files)} PNG file(s); unchanged resized PNGs are reused.')
+    for index, source in enumerate(files, start=1):
+        if control:
+            control.boundary()
+        relative = source.relative_to(PNG_FOLDER)
+        output = RESIZED_FOLDER / relative
+        review_file = REVIEW_FOLDER / relative
         try:
-
-            # Preserve folder structure
-            relative_path = png_file.relative_to(
-                PNG_FOLDER
-            )
-
-            output_file = (
-                RESIZED_FOLDER /
-                relative_path
-            )
-
-            review_file = (
-                REVIEW_FOLDER /
-                relative_path
-            )
-
-            # Open image
-            with Image.open(png_file) as img:
-
-                img = img.convert("RGBA")
-
-                original_size = img.size
-
-                # -----------------------------------
-                # Send non-64x64 images to REVIEW
-                # -----------------------------------
-
-                if original_size != (64, 64):
-
-                    review_file.parent.mkdir(
-                        parents=True,
-                        exist_ok=True
-                    )
-
-                    # Only create review copy if missing
-                    if not review_file.exists():
-
-                        img.save(
-                            review_file,
-                            "PNG"
-                        )
-
-                    review += 1
-
-                    print(
-                        f"[REVIEW] {png_file.name} "
-                        f"({original_size[0]}x{original_size[1]})"
-                    )
-
-                    continue
-
-                # -----------------------------------
-                # Skip files already resized
-                # -----------------------------------
-
-                output_file.parent.mkdir(
-                    parents=True,
-                    exist_ok=True
-                )
-
-                if output_file.exists():
-
-                    skipped += 1
-
-                    print(
-                        f"[SKIPPED] {png_file.name}"
-                    )
-
-                    continue
-
-                # -----------------------------------
-                # Resize standard 64x64 WoW icon
-                # -----------------------------------
-
-                print(
-                    f"[OK] Resizing: {png_file.name}"
-                )
-
-                # Upscale to 128x128
-                img = img.resize(
-                    (128, 128),
-                    Image.Resampling.LANCZOS
-                )
-
-                # Remove transparent edge
-                img = img.crop(
-                    CROP_BOX
-                )
-
-                # Restore final 128x128 size
-                img = img.resize(
-                    (128, 128),
-                    Image.Resampling.LANCZOS
-                )
-
-                # Save PNG
-                img.save(
-                    output_file,
-                    "PNG"
-                )
-
-            processed += 1
-
-        except Exception as e:
-
+            fingerprint = sha256(source) + ':resize-v1'
+            # Skip opening/resizing images whose completed records still match.
+            if state.current('resize', relative, fingerprint, output):
+                skipped += 1
+                ready.append(output)
+            elif (state.current('review', relative, fingerprint, review_file)
+                  and state.data['stages'].get('review:' + path_key(relative), {}).get('policy') == 2):
+                output.unlink(missing_ok=True)
+                review += 1
+            else:
+                with Image.open(source) as image:
+                    image = image.convert('RGBA')
+                    if image.size not in ((64, 64), (128, 128)):
+                        if not state.current('review', relative, fingerprint, review_file):
+                            atomic_write(review_file, lambda p: image.save(p, 'PNG'))
+                            state.complete('review', relative, fingerprint, review_file)
+                        state.data['stages']['review:' + path_key(relative)]['policy'] = 2
+                        state.checkpoint()
+                        output.unlink(missing_ok=True)
+                        review += 1
+                    else:
+                        if image.size == (64, 64):
+                            image = image.resize((128, 128), Image.Resampling.LANCZOS)
+                            image = image.crop(CROP_BOX).resize((128, 128), Image.Resampling.LANCZOS)
+                        # Native 128x128 inputs preserve their pixels and dimensions.
+                        reuse_existing = (
+                            'resize:' + path_key(relative) not in state.data['stages']
+                            and output.is_file() and image_matches(output, image))
+                        if not reuse_existing:
+                            atomic_write(output, lambda p: image.save(p, 'PNG'))
+                        state.complete('resize', relative, fingerprint, output)
+                        if reuse_existing:
+                            skipped += 1
+                        else:
+                            processed += 1
+                        ready.append(output)
+        except Exception as exc:
             errors += 1
-
-            print(
-                f"[FAILED] {png_file.name}"
-            )
-
-            print(e)
-
-    print()
-    print("===================================")
-    print("Resize Complete")
-    print("===================================")
-    print(f"Processed:          {processed}")
-    print(f"Already processed:  {skipped}")
-    print(f"Needs review:       {review}")
-    print(f"Errors:             {errors}")
-    print("===================================")
+            print(f'\n[FAILED] {relative}: {exc}')
+        display.update(index, Resized=processed, Reused=skipped, Review=review, Failed=errors)
+    print(f'Resized: {processed}  Reused: {skipped}  Review: {review}  Failed: {errors}')
+    state.data['stage_errors'] = state.data.get('stage_errors', 0) + errors
+    state.data['review_count'] = review
+    state.save()
+    return ready
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     resize_icons()
